@@ -8,14 +8,14 @@ A tiny external overlay for Counter-Strike 2 that shows a countdown timer betwee
 - Lightweight Win32 layered-window overlay, no egui or game hooks
 - External read-only attach to `cs2.exe`, no code injection
 - Adaptive polling (idle / combat / timer) to keep CPU near zero
-- Color-banded countdown (green, orange, red) so you can read it at a glance
+- Color-banded streak timer (red while fresh, orange, then green once the window expires)
 - Single Windows exe, no installer, no runtime deps
 - Offsets fetched from [a2x/cs2-dumper](https://github.com/a2x/cs2-dumper) at startup
 
 
 ## Overview
 
-When you get a kill, a streak timer appears on screen. Stack kills fast and it stays green. Let it run down and it turns red. The overlay never touches the game process beyond `ReadProcessMemory`, so it does not modify game state and does not interact with VAC-protected code paths.
+When you get a kill, a timer appears on screen showing seconds since your last kill. The color tells you where you are in the streak window: red while it is fresh, orange in the middle, green once the window has expired. The overlay never touches the game process beyond `ReadProcessMemory`, so it does not modify game state and does not interact with VAC-protected code paths.
 
 This is a personal project for tracking streak windows during deathmatch and casual play. Use at your own discretion.
 
