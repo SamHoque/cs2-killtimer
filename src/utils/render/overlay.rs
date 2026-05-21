@@ -6,19 +6,18 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use windows::Win32::Foundation::{CloseHandle, HWND, POINT, SIZE};
+use windows::Win32::Foundation::{CloseHandle, HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Gdi::{
-    AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION,
+    AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION, ClientToScreen,
     CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, HBITMAP,
     HGDIOBJ, ReleaseDC, SelectObject,
 };
 use windows::Win32::System::ProcessStatus::GetModuleFileNameExW;
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, GetForegroundWindow, GetSystemMetrics, GetWindowTextW,
-    GetWindowThreadProcessId, SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, ShowWindow,
-    ULW_ALPHA, UpdateLayeredWindow, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    CreateWindowExW, GetClientRect, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
+    SW_HIDE, SW_SHOWNOACTIVATE, ShowWindow, ULW_ALPHA, UpdateLayeredWindow, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::PCWSTR;
 
@@ -28,10 +27,6 @@ use crate::core::settings::{
 };
 use crate::core::state::SharedState;
 use crate::utils::render::text::{Glyph, rasterize};
-
-fn screen_size() -> (i32, i32) {
-    unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) }
-}
 
 /// Lower-case basename of the exe for the given pid, or empty on failure.
 fn process_exe_basename(pid: u32) -> String {
@@ -54,22 +49,46 @@ fn process_exe_basename(pid: u32) -> String {
     path.rsplit('\\').next().unwrap_or("").to_string()
 }
 
-/// True when the foreground window belongs to cs2.exe, or its title starts with
-/// `"Counter-Strike 2"`.
-fn is_cs2_foreground() -> bool {
+/// Returns the foreground HWND when it belongs to cs2.exe, or its title starts
+/// with `"Counter-Strike 2"`. None otherwise.
+fn cs2_foreground_hwnd() -> Option<HWND> {
     let fg = unsafe { GetForegroundWindow() };
     if fg.is_invalid() {
-        return false;
+        return None;
     }
     let mut pid: u32 = 0;
     unsafe { GetWindowThreadProcessId(fg, Some(&mut pid)) };
     if process_exe_basename(pid).eq_ignore_ascii_case("cs2.exe") {
-        return true;
+        return Some(fg);
     }
     let mut tbuf = [0u16; 512];
     let n = unsafe { GetWindowTextW(fg, &mut tbuf) } as usize;
     let title = String::from_utf16_lossy(&tbuf[..n]);
-    title.trim().starts_with(TARGET_WINDOW_TITLE)
+    if title.trim().starts_with(TARGET_WINDOW_TITLE) {
+        Some(fg)
+    } else {
+        None
+    }
+}
+
+/// Client-area rect of `hwnd` in screen coordinates, as `(x, y, w, h)`. This is
+/// what we anchor the overlay to so it tracks CS2 in windowed mode and lines up
+/// with the game's render surface in borderless / fullscreen.
+fn client_rect_screen(hwnd: HWND) -> Option<(i32, i32, i32, i32)> {
+    unsafe {
+        let mut rc = RECT::default();
+        GetClientRect(hwnd, &mut rc).ok()?;
+        let mut tl = POINT { x: 0, y: 0 };
+        if !ClientToScreen(hwnd, &mut tl).as_bool() {
+            return None;
+        }
+        let w = rc.right - rc.left;
+        let h = rc.bottom - rc.top;
+        if w <= 0 || h <= 0 {
+            return None;
+        }
+        Some((tl.x, tl.y, w, h))
+    }
 }
 
 struct LayeredWindow {
@@ -212,12 +231,19 @@ pub fn run(state: Arc<SharedState>) -> Result<()> {
         thread::sleep(tick);
 
         let (visible, value, rgb, connected) = state.snapshot();
-        if !visible || !connected || !is_cs2_foreground() {
+        let cs2 = cs2_foreground_hwnd();
+        if !visible || !connected || cs2.is_none() {
             window.hide();
             last_text.clear();
             fade_start = None;
             continue;
         }
+        let Some((cx, cy, cw, ch)) = client_rect_screen(cs2.unwrap()) else {
+            window.hide();
+            last_text.clear();
+            fade_start = None;
+            continue;
+        };
 
         let text = value.to_string();
         if text != last_text {
@@ -236,9 +262,8 @@ pub fn run(state: Arc<SharedState>) -> Result<()> {
         let top = lighten(rgb, OVERLAY_GRADIENT_TOP_LIGHTEN);
         let bottom = darken(rgb, OVERLAY_GRADIENT_BOTTOM_DARKEN);
         let g = rasterize(&text, top, bottom, alpha);
-        let (sw, sh) = screen_size();
-        let x = sw / 2 - (g.w as i32) / 2;
-        let y = sh / 2 + 100 - (g.h as i32) / 2;
+        let x = cx + cw / 2 - (g.w as i32) / 2;
+        let y = cy + ch / 2 + 100 - (g.h as i32) / 2;
         window.update(&g, x, y);
     }
 }
