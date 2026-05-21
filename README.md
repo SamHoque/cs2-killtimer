@@ -17,8 +17,6 @@ A tiny external overlay for Counter-Strike 2 that shows a countdown timer betwee
 
 When you get a kill, a timer appears on screen showing seconds since your last kill. The color tells you where you are in the streak window: red while it is fresh, orange in the middle, green once the window has expired. The overlay never touches the game process beyond `ReadProcessMemory`, so it does not modify game state and does not interact with VAC-protected code paths.
 
-This is a personal project for tracking streak windows during deathmatch and casual play. Use at your own discretion.
-
 
 ## Install
 
