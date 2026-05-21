@@ -1,0 +1,39 @@
+[package]
+name = "cs2-killtimer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Process memory + Win32 (overlay uses a layered window, no egui)
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Memory",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_HiDpi",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Console",
+] }
+
+# JSON offsets
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Text rasterization for the overlay
+ab_glyph = "0.2"
+
+# Time/logging niceties
+chrono = "0.4"  # for the [M/D/YY HH:MM:SS] timestamps
+anyhow = "1"    # ergonomic error handling
+
+# Fetching offsets from cs2-dumper raw GitHub
+ureq = { version = "2", default-features = false, features = ["json", "tls"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
